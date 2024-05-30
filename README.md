@@ -26,7 +26,7 @@ The system consists up of a 3 microservice architecture. The frontend tier is im
 
 #### Diagram:
 
-![alt text](images/lab367diagram.drawio.png)
+![alt text](docs/images/lab367diagram.drawio.png)
 
 **Microservices Description:**
 
@@ -67,7 +67,7 @@ To avoid the problem of single point of failure, order service is replicated and
 
 If the leader crashes, the frontend service will notice the crash and then select the node with the highest id.
 
-![alt text](images/leader-election.png)
+![alt text](docs/images/leader-election.png)
 
 When the crashed node comes back up, it will sync with one of the active nodes to get all the missed order and then start processing requests.
 
@@ -102,7 +102,7 @@ The frontend service exposes 2 rest apis used for querying making buy requests. 
     ```
    
     With the introduction of a caching layer, if the cache has the requested product, the frontend service will return the response back to the user else it will check with the catalog service.
-   ![alt text](images/query-flow.png)
+   ![alt text](docs/images/query-flow.png)
 2. `POST /orders`
 
    This API will try to place an order for a certain product. The client should attach a JSON body
@@ -128,10 +128,10 @@ The frontend service exposes 2 rest apis used for querying making buy requests. 
 
    In case of error, the front-end service returns a JSON reply with a top-level `error` object,
    which has two fields, `code` and `message`, similar to the product query API.
-   ![alt text](images/order-flow.png)
+   ![alt text](docs/images/order-flow.png)
 
     Since there are several order replicas, the request will be sent to the leader node and the leader node will then forward the request to the follower nodes.
-   ![alt text](images/order-service-follow.png)
+   ![alt text](docs/images/order-service-follow.png)
 
 
 
@@ -158,7 +158,7 @@ The frontend service exposes 2 rest apis used for querying making buy requests. 
     }
     ```
 
-   ![alt text](images/order-query-flow.png)
+   ![alt text](docs/images/order-query-flow.png)
 
 
 
