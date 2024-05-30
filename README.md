@@ -1,207 +1,229 @@
-[![Review Assignment Due Date](https://classroom.github.com/assets/deadline-readme-button-24ddc0f5d75046c5622901739e7c5dd533143b0c8e959d652212380cedb1ea36.svg)](https://classroom.github.com/a/4-cdj-MR)
-Compsci 677: Distributed and Operating Systems
+**Title: A caching enabled, fault-tolerant Microservices Architecture Design for Toy Store Application**
 
-Spring 2024
+# Introduction:
 
-# Lab 3: Asterix and Double Trouble - Caching, Replication and Fault Tolerance
+A centralised web application has several drawbacks which includes scalability, load distribution across applications in a single server etc.
 
+A simple solution to this approach is to use a microservice architecture.
 
-## Information about your submission
-1. Name and email: add your name and email here. 
-2. Team member name and email: add team member info. say none if this is a solo submission
-3. Number of late days used for this lab: say zero if none used
-4. Number of late days used so far including this lab: say zero if none used.
+According to microservices.io: Microservices - also known as the microservice architecture - is an architectural style that structures an application as a collection of services that are:
+1. Independently deployable
+2. Loosely coupled
 
+Services are typically organized around business capabilities. Each service is often owned by a single, small team.
 
-## Goals and Learning Outcomes
+The microservice architecture enables an organization to deliver large, complex applications rapidly, frequently, reliably and sustainably - a necessity for competing and winning in today’s world.
 
-The lab has the following learning outcomes with regards to concepts covered in class.
+In addition to deploying individual services, several replicas of the same service can be deployed to overcome the problem of single point of failure in distributed systems. Having multiple replicas of the service also carries additional overhead of guaranteeing consistency across different replicas which can be handled by designing fault tolerant systems. 
+To further improve the performance of the web application, a caching layer can be used to send quick response for particular requests. 
 
-* Learn about caching, replication, and consistency.
-* Learn about the concepts of fault tolerance and high availability.
-* Learn about how to deploy your application on the cloud.
-* Optionally learn about Paxos and Raft 
+# Goals and Objective:
+The goal here is to implement a microservices architecture for the Toy Store application which will have a caching layer enabled and also provide a fault tolerant system by creating several replicas of the same service. The system is divided into three main microservices: Catalog Service, Order Service, and Frontend Service. Each service is responsible for specific functionalities.
 
-## Instructions
+# Architecture Overview:
 
-1. You may work in groups of two for this lab. If you decide to work in groups, you should briefly
-    describe how the work is divided between the two team members in your README file.  Be sure to list
-    the names of all team members at the top of this README file.
-2) You can use either Python or Java for this assignment. For this lab, you may use different languages  for different
-    microservices if you want.
-3) Use the following team naming format when you create your team on GitHub: spring24-lab3-GitHubid1-Githubid2. For example, spring24-lab3-alice-bob for a group of two. For a single group team, use spring24-lab3-alice as an example team name for a student with github id alice. If you already chose a different format for your team, edit your team name to the above format. 
-4) Do's and don'ts:
-   - discus lab with other students: allowed
-   - use of AI tools: allowed with full attribution (be sure to read the policy in the course syllabus)
-   - use code from others/Internet/friends/coders for hire: disallowed
-   - ask TAs for clarifications/help: always allowed
+The system consists up of a 3 microservice architecture. The frontend tier is implemented as a single microservice (Frontend Service), responsible for handling client requests and communicating with the catalog and order microservice. The catalog and order services are responsible for managing catalog data and processing orders, respectively.
 
+#### Diagram:
 
-## Lab Description
+![alt text](images/lab367diagram.drawio.png)
 
-The Gauls have really taken to online commerce and buying toys online has become their village pass time. To ensure high performance and tolerance to failures, they have decided to adopt modern disstributed systems design practices.
+**Microservices Description:**
 
-This project is based on lab 2. You can reuse some of the code you wrote in lab 2 if you want. Your goal is to help the Gauls by adding caching, replication, and fault tolerance  to the toy store application that we have implemented in the previous labs. Here are some basic requirements:
+- **Catalog Service:**
+    - The Catalog Service is responsible for managing the catalog data, including product information such as name, price, and quantity.
+    - It uses simple socket based APIs for querying product details and updating product quantities.
+    - The service initializes catalog data from a CSV file on startup and persists changes to the catalog on disk.
+    - A ConcurrentHashMap is used to store catalog data in memory for efficient querying and updating.
+    - It replenishes the out of stock items every 10 sec.
+    - The Service send invalidation request to FrontEndService whenever there is an update in the stock items. 
 
-1.  The toy store application consists of three microservices: a front-end service, a catalog
-    service, and an order service.
+- **Order Service:**
+    - The Order Service handles order processing, including checking product availability and logging orders.
+    - It communicates with the Catalog Service by sending messages over a socket connection to verify product availability before processing orders.
+    - Orders are logged to a CSV file on disk for persistence.
+    - Order Service has been replicated into different machines to implement a fault tolerant system.
+    - Every replica syncs with any other active replica to retrieve all the missed order details.
 
-2.  The front-end service exposes the following REST APIs as they were defined in lab2:
+- **Frontend Service:**
+    - The Frontend Service acts as the entry point for client requests and serves as an interface between clients and Catalog and Order services.
+    - Exposes REST APIs for querying product details and placing orders.
+    - Uses HTTPServer from the Java standard library to handle incoming HTTP requests concurrently.
+    - Routes client requests to appropriate backend services based on the requested functionality.
+    - A caching layer is introduced to send quicker response for query requests back to the client.
+    - Leader election for the order service is handled in this layer.
 
-    *   `GET /products/<product_name>`
-    *   `POST /orders`
+**Database:**
 
-    In addition, the front-end service will provide a new REST API that allows clients to query
-    existing orders:
+- **Catalog Database:**
+    - Catalog data is loaded from and persisted to a CSV file on disk.
 
-    *   `GET /orders/<order_number>`
+- **Order Logging:**
+    - Order logs are written to a CSV file on disk for persistence.
 
-        This API returns a JSON reply with a top-level `data` object with the three fields:
-        `number`, `name`, and `quantity`. If the order number doesn't exist, a JSON reply with a
-        top-level `error` object should be returned. The `error` object should contain two fields:
-        `code` and `message`
+# Leader Election and maintaining consistency
 
-    Since in this lab we will focus on higher level concepts, you can use any web framework like
-    [`Django`](https://www.djangoproject.com), [`Flask`](https://github.com/pallets/flask),
-    [`Java Spark`](https://github.com/perwendel/spark) to implement your front-end service. You can also
-    reuse the code you wrote in lab 2 if you prefer.
+To avoid the problem of single point of failure, order service is replicated and where each order service replica has a unique id. The frontend service selects the order service with the highest id and elects it as leader. The leader node then forwards the order request after processing it to the follower nodes to maintain consistency in the order logs. 
 
-3.  Like in lab 2, you can decide the interfaces used between the microservices. Each microservice
-    still need to be able to handle requests concurrently. You can use any concurrency models
-    covered in class.
+If the leader crashes, the frontend service will notice the crash and then select the node with the highest id.
 
-4.  Add some variety to the toy offering by initializing your catalog with at least 10 different
-    toys( You can consider adding some toys from the [National Toy Hall of
-    Fame](https://en.wikipedia.org/wiki/National_Toy_Hall_of_Fame)). Each toy should have an initial
-    stock of 100. Also the catalog service will periodically restock the toys that are out of stock.
-    The catalog service should check remaining quantity of every toy every 10 seconds, if a toy is
-    out of stock the catalog service will restock it to 100.
+![alt text](images/leader-election.png)
 
-5.  The client first queries the front-end service with a random toy. If the returned quantity is
-    greater than zero, with probability p it will send an order request (make p an variable that's
-    adjustable). You can decide whether the the toy query request and the order request uses the
-    same connection. The client will repeat for a number of iterations, and record the the order
-    number and order information if a purchase request was successful. Before exiting, the client
-    will retrieve the order information of each order that was made using the order query request,
-    and check whether the server reply matches the locally stored order information.
+When the crashed node comes back up, it will sync with one of the active nodes to get all the missed order and then start processing requests.
 
-## Part 1: Caching
+# REST APIs
 
-In this part we will add caching to the front-end service to reduce the latency of the toy query
-requests. The front-end server start with an empty in-memory cache. Upon receiving a toy query
-request, it first checks the in-memory cache to see whether it can be served from the cache. If not,
-the request will then be forwarded to the catalog service, and the result returned by the catalog
-service will be stored in the cache.
+The frontend service exposes 2 rest apis used for querying making buy requests. These are:
+1. `GET /products/<product_name>`
 
-Cache consistency needs to be addressed whenever a toy is purchased or restocked. You should
-implement a server-push technique: catalog server sends invalidation requests to the front-end
-server after each purchase and restock. The invalidation requests cause the front-end service to
-remove the corresponding item from the cache.
+   This API is used to query the details of a product. If the query is successful, the server should return a JSON reply with a top-level `data` object. Similar to lab 1, the `data` object has three fields: `name`, `price`, and `quantity`. For instance,
 
-Your cache implementation **must include a cache replacement policy** such as LRU (least recently used).
-To exercise this policy, the cache size should be set to a value lower than the number of toys in the catalog.
-For example, if your catalog has 15 different toys, the cache size should be set to 10 to exercise the cache 
-replacement policy. Using a cache size that is larger than the number of items in the catalog should be avoided since it 
-will never trigger cache replacement.
+    ```json
+    {
+        "data": {
+            "name": "Tux",
+            "price": 15.99,
+            "quantity": 100
+        }
+    }
+    ```
 
-## Part 2: Replication
+   If things go wrong, for example, if the product name provided by the client does not exist, the
+   front-end service should return a JSON reply with a top-level `error` object. The `error` object
+   should contain two fields: `code` (for identifying the type of the error) and `message` (human-readable explanation of what went wrong). For instance,
 
-To make sure that our toy store doesn't lose any order information due to crash failures, we want to
-replicate the order service. When you start the toy store application, you should first start the
-catalog service. Then you start three replicas of the order service, each with a unique id number
-and its own database file. There should always be 1 leader node and the rest are follower nodes. You
-do **NOT** need to implement a leader election algorithm. Instead the front-end service will always
-try to pick the node with the highest id number as the leader.
+    ```json
+    {
+        "error": {
+            "code": 404,
+            "message": "product not found"
+        }
+    }
+    ```
+   
+    With the introduction of a caching layer, if the cache has the requested product, the frontend service will return the response back to the user else it will check with the catalog service.
+   ![alt text](images/query-flow.png)
+2. `POST /orders`
 
-When the front-end service starts, it will read the id number and address of each replica of the
-order service (this can be done using configuration files/environment variables/command line
-parameters). It will ping (here ping means sending a health check request rather than the `ping`
-command) the replica with the highest id number to see if it's responsive. If so it will notify all
-the replicas that a leader has been selected with the id number, otherwise it will try the replica
-with the second highest id number. The process repeats until a leader has been found.
+   This API will try to place an order for a certain product. The client should attach a JSON body
+   to the POST request to provide the information needed for the order (`name` and `quantity`).
 
-When a purchase request or an order query request, the front-end service only forwards the request
-to the leader. In case of a successful purchase (a new order number is generated), the leader node
-will propagate the information of the new order to the follower nodes to maintain data consistency.
+    ```json
+    {
+        "name": "Tux",
+        "quantity": 1
+    }
+    ```
 
-## Part 3: Fault Tolerance
+   If the order is placed successfully, the front-end service returns a JSON object with a
+   top-level `data` object, which only has one field named `order_number`.
 
-In this part you will handle failures of the order service. In this lab you only need to deal with
-crash failure tolerance rather than Byzantine failure tolerance.
+    ```json
+    {
+        "data": {
+            "order_number": 10
+        }
+    }
+    ```
 
-First We want to make sure that when any replica crashes (including the leader), toy purchase
-requests and order query requests can still be handled and return the correct result. To achieve
-this, when the front-end service finds that the leader node is unresponsive, it will redo the leader
-selection algorithm as described in [Part2](#part-2-replication).
+   In case of error, the front-end service returns a JSON reply with a top-level `error` object,
+   which has two fields, `code` and `message`, similar to the product query API.
+   ![alt text](images/order-flow.png)
 
-We also want to make sure that when a crashed replica is back online, it can synchronize with the
-other replicas to retrieve the order information that it has missed during the offline time. When a
-replica came back online from a crash, it will look at its database file and get the latest order
-number that it has and ask the other replicas what orders it has missed since that order number.
-
-## Part 4: Testing and Evaluation with Deployment on AWS
-
-First, write some simple test cases to verify that your code works as expected. You should test both
-each individual microservice as well as the whole application. Submit your test cases and test
-output in a test directory.
-
-Next, deploy your application on an `m5a.xlarge` instance in the `us-east-1` region on AWS. We will
-provide instructions on how to do this in homework 6. Run 5 clients on your local machine. Measure
-the latency seen by each client for different type requests. Change the probability p of a follow up
-purchase request from 0 to 80%, with an increment of 20%, and record the result for each p setting.
-Make simple plots showing the values of p on the X-axis and the latency of different types of
-request on the y-axis. Also do the same experiments but with caching turned off, estimate how much
-benefits does caching provide by comparing the results.
-
-Finally, simulate crash failures by killing a random order service replica while the clients is
-running, and then bring it back online after some time. Repeat this experiment several times and
-make sure that you test the case when the leader is killed. Can the clients notice the failures
-(either during order requests or the final order checking phase) or are they transparent to the
-clients? Do all the order service replicas end up with the same database file?
-
-##  Part 5: Optional part for Extra Credit -  Consensus using RAFT
-
-This part is optional and may be attempted for extra credit. This part can take significant effort and you should attempt it **only if the rest of your lab is complete and in good shape.** 
-
-Assume that the order service is replicated on three nodes. Implement a RAFT consensus protocol that uses state machine replication so that all replicas can order incoming writes and apply them to the database in the same order. This will ensure that race conditions do not occur where concurrent incoming orders go to two different replicas and get applied to the other replicas in different orders. You will need to implement an on-disk log that implements state machine replication as part of RAFT. You will further need to show that failures of a order replica does not prevent the others from making progress since the majority of the replicas (2 out of 3) are still up.  The extra credit part is worth 20 points.
+    Since there are several order replicas, the request will be sent to the leader node and the leader node will then forward the request to the follower nodes.
+   ![alt text](images/order-service-follow.png)
 
 
-## What to submit
 
-At the top of this README file add the name(s) and umass email address(es) of all the team members.
-Also if you are working in a group, briefly describe how the work is divided.
+3. `GET /order/<order_number>`
 
-You solution should contain source code for both parts separately. Inside the src directory, you
-should have a separate folder for each component/microservice, e.g., a `client` folder for client
-code, a `front-end` folder for the front-end service, etc.
+    This API will retrieve the order details from OrderService. If the query is successful, the server should return a JSON reply with a top-level `data` object. The `data` object has three fields: `number`, `name`, and `quantity`. For instance,
+    ```json
+    {
+        "data": {
+            "number": "20",
+            "name": "Tux",
+            "quantity": 100
+        }
+    }
+    ```
 
-A short README file on how to run your code. Include build/make files if you created any, otherwise
-the README instructions on running the code should provide details on how to do so.
+    If things go wrong, for example, if the order_number provided by the client does not exist, the front-end service should return a JSON reply with a top-level `error` object. The `error` object should contain two fields: `code` (for identifying the type of the error) and `message` (human-readable explanation of what went wrong). For instance,
+    ```json
+    {
+        "error": {
+            "code": 404,
+            "message": "order not found"
+        }
+    }
+    ```
 
-Submit the following additional documents inside the docs directory. 1) A Brief design document (
-2 to 3 pages) that explains your design choices (include citations, if you used referred to Internet
-sources), 2) An Output file (1 to 2 pages), showing sample output or screenshots to indicate your
-program works, and 3) An Evaluation doc (2 to 3 pages), for part 4 showing plots and making
-observations.  
-
-If you attempted the extra credit part, include a separate source code folder for this part and also include it in the design doc and show sample output.
-
-## Grading Rubric
-
-Parts 1-3 account for 85% of the total lab grade:
-
-* Code should have inline comments (5%).
-* GitHub repo should have adequate commits and meaningful commit messages (5%).
-* Source code should build and work correctly (55%).
-* A descriptive design doc should be submitted (15%).
-* An output file should be included (5%).
-
-Parts 4 accounts for 15% of the total lab grade:
-
-* Should provide steps in your eval docs about how you deployed your application on AWS. Include
-  scripts in your repo if needed (5%).
-* An eval doc with measurement results and plots (5%).
-* Analysis of the results and answers to the questions in part 3 (5%).
+   ![alt text](images/order-query-flow.png)
 
 
-Part 5 acconunts for an extra 20% of the total lab grade.
+
+[//]: # (**6. Docker Containerization:**)
+
+[//]: # ()
+[//]: # (**6.1 Dockerfile:**)
+
+[//]: # (Each microservice has its Dockerfile defined within its respective directory. The Dockerfile specifies the base image, dependencies, and commands required to build the microservice image.)
+
+[//]: # ()
+[//]: # (**6.2 Docker Compose:**)
+
+[//]: # (A Docker Compose file is used to define and manage the multi-container Docker application. It specifies the services &#40;microservices&#41; required, along with their configurations, dependencies, and volume mounts. Additionally, the Docker Compose file ensures proper networking between the microservices.)
+
+[//]: # ()
+[//]: # (**6.3 Volume Mounting:**)
+
+[//]: # (To ensure data persistence, volumes are mounted for the Catalog Service and Order Service. This allows the services to read and write data from/to directories on the host machine. For example, the catalog data is stored in the `/usr/src/app/data` directory, and the order logs are stored in the `/usr/src/app/logs` directory. This setup ensures that data and logs are retained even if the containers are removed.)
+
+# Steps to run
+
+Prerequisites:
+1. In your src directory compile the java code:
+```shell
+javac catalogservice/*.java
+javac orderservice/*.java
+javac frontendservice/*.java frontendservice/handler/*.java frontendservice/cache/*.java
+```
+
+2. Run catalog service by setting environment variable `hostname:8081` of where you are planning frontend service to run. 
+```shell
+export FRONTEND_HOST=localhost:8081
+java catalogservice.CatalogService
+```
+
+3. Run each replica of order service by passing in the hostname of other replicas as a command line parameter.
+
+```shell
+export CATALOG_HOST=localhost
+java orderservice.OrderService hostname1 hostname2
+```
+
+4. Set the values of node id and hostname in the file frontendservice/handler/nodes.properties.
+    
+eg. of `nodes.properties` file:
+```
+1 localhost
+2 elnux2.cs.umass.edu
+```
+Run the frontend service
+```shell
+export CATALOG_HOST=localhost
+java frontendservice.FrontEndService
+```
+
+Test the client by setting the environment variable `hostname:8080` and running:
+```shell
+export REMOTE_HOST=localhost:8080
+
+javac client/Client.java
+java client.Client
+```
+
+**8. References:**
+
+- Docker Documentation: https://docs.docker.com/
+- Microservices Architecture Patterns: https://microservices.io/patterns/index.html
