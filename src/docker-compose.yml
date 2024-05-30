@@ -1,0 +1,26 @@
+version: '3'
+services:
+  catalog-service:
+    build: ./catalogservice
+    volumes:
+    - ./catalogservice/data:/usr/src/app/data  # Mount host directory as a volume for data persistence
+
+  frontend-service:
+    build: ./frontendservice
+    ports:
+      - "11111:8080"
+    links:
+      - catalog-service
+      - order-service
+    environment:
+      - CATALOG_HOST=catalog-service
+      - ORDER_HOST=order-service
+
+  order-service:
+    build: ./orderservice
+    links:
+      - catalog-service
+    volumes:
+      - ./orderservice/logs:/usr/src/app/logs   # Mount host directory as a volume for log persistence
+    environment:
+      - CATALOG_HOST=catalog-service
